@@ -1,8 +1,12 @@
 {-# LANGUAGE CPP, ForeignFunctionInterface #-}
 module Main where
 
+import Platform
+
+
 import Control.Monad
 import Data.Int(Int64)
+import Data.Word(Word32)
 import qualified GHC.ConsoleHandler as GHC
 import qualified Foreign.Ptr as F
 import qualified Foreign.Marshal.Alloc as F
@@ -16,9 +20,11 @@ import qualified System.Exit as SE
 import qualified Text.Printf as TPF
 
 import qualified System.Console.ANSI as SCA -- from ansi-terminal-0.6
-import qualified System.Time as ST
+-- import qualified System.Time as ST
+import qualified Data.Time.Clock.System as DT
 
-import Platform
+
+
 
 -- TODO:
 --   * control-break kills the child, need to block that signal somehow
@@ -77,7 +83,7 @@ runWithArgs args = do
   GHC.installHandler (GHC.Catch (consoleHandler mv))
   parseArgs 1 defaultArgs args >>= execute mv
 
-data PInfo = PInfo !SP.ProcessHandle !Double
+data PInfo = PInfo !SP.ProcessHandle !DT.SystemTime
 type PState = MVar.MVar PInfo
 
 consoleHandler :: PState -> GHC.ConsoleEvent -> IO ()
@@ -91,8 +97,8 @@ consoleHandler mv h
 consoleHandler _ _  = return ()
 
 
-
-data Args = Args {
+data Args =
+  Args {
     argsColor :: Bool
   , argsTime :: Bool
   , argsShell :: Bool
@@ -149,18 +155,109 @@ putStderrLn = hPutColoredLn SIO.stderr SCA.Red
 execute :: PState -> Args -> IO SE.ExitCode
 execute mv args = do
   -- print args
-  sT <- nowS
+  sT <- now
   ec <- runProcess sT mv args
-  eT <- nowS
+  eT <- now
   case ec of
     SE.ExitSuccess   -> hPutColoredLn SIO.stdout SCA.Green ("exited: 0")
-    SE.ExitFailure c -> hPutColoredLn SIO.stdout SCA.Red   ("exited: " ++ show c ++ (if c < -128 then TPF.printf " (0x%X)" c else ""))
+    SE.ExitFailure c -> hPutColoredLn SIO.stdout SCA.Red   ("exited: " ++ show c ++ exit_extended_info)
+      where c32 = fromIntegral c :: Word32
+
+            exit_extended_info
+              | c < -128 = TPF.printf " (0x%X" c32 ++ ext_info ++ ")"
+              | otherwise = ""
+              where ext_info =
+#if mingw32_HOST_OS || mingw32_TARGET_OS
+                      case c32 of
+                        -- just an interesting subset
+                        -- https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/596a1078-e883-4972-9bbc-49e60bebca55
+                        0x80000001 -> " STATUS_GUARD_PAGE_VIOLATION"
+                        0x80000002 -> " STATUS_DATATYPE_MISALIGNMENT"
+                        0x80000003 -> " STATUS_BREAKPOINT"
+                        0x80000004 -> " STATUS_SINGLE_STEP"
+                        0x80000005 -> " STATUS_BUFFER_OVERFLOW"
+                        0x80000006 -> " STATUS_NO_MORE_FILES"
+                        0x80000007 -> " STATUS_WAKE_SYSTEM_DEBUGGER"
+                        0x8000000A -> " STATUS_HANDLES_CLOSED"
+                        0x8000000B -> " STATUS_NO_INHERITANCE"
+                        0x8000000D -> " STATUS_PARTIAL_COPY"
+                        0x8000000E -> " STATUS_DEVICE_PAPER_EMPTY"
+                        0x8000000F -> " STATUS_DEVICE_POWERED_OFF"
+                        0x8000002B -> " STATUS_DLL_MIGHT_BE_INSECURE"
+                        0x8000002C -> " STATUS_DLL_MIGHT_BE_INCOMPATIBLE"
+                        0x80000289 -> " STATUS_DEVICE_DOOR_OPEN"
+                        0x80010001 -> " DBG_EXCEPTION_NOT_HANDLED"
+                        --
+                        0xC0000005 -> " STATUS_ACCESS_VIOLATION"
+                        0xC0000006 -> " STATUS_IN_PAGE_ERROR"
+                        0xC0000007 -> " STATUS_PAGEFILE_QUOTA"
+                        0xC0000008 -> " STATUS_INVALID_HANDLE"
+                        0xC0000009 -> " STATUS_BAD_INITIAL_STACK"
+                        0xC000000A -> " STATUS_BAD_INITIAL_PC"
+                        0xC000000B -> " STATUS_INVALID_CID"
+                        0xC000000C -> " STATUS_TIMER_NOT_CANCELED"
+                        0xC000000D -> " STATUS_INVALID_PARAMETER"
+                        0xC000000E -> " STATUS_NO_SUCH_DEVICE"
+                        0xC000000F -> " STATUS_NO_SUCH_FILE"
+                        0xC0000010 -> " STATUS_INVALID_DEVICE_REQUEST"
+                        0xC0000011 -> " STATUS_END_OF_FILE"
+                        0xC0000012 -> " STATUS_WRONG_VOLUME"
+                        0xC0000013 -> " STATUS_NO_MEDIA_IN_DEVICE"
+                        0xC0000014 -> " STATUS_UNRECOGNIZED_MEDIA"
+                        0xC0000015 -> " STATUS_NONEXISTENT_SECTOR"
+                        0xC0000016 -> " STATUS_MORE_PROCESSING_REQUIRED"
+                        0xC0000017 -> " STATUS_NO_MEMORY"
+                        0xC0000018 -> " STATUS_CONFLICTING_ADDRESSES"
+                        0xC0000019 -> " STATUS_NOT_MAPPED_VIEW"
+                        0xC000001A -> " STATUS_UNABLE_TO_FREE_VM"
+                        0xC000001B -> " STATUS_UNABLE_TO_DELETE_SECTION"
+                        0xC000001C -> " STATUS_INVALID_SYSTEM_SERVICE"
+                        0xC000001D -> " STATUS_ILLEGAL_INSTRUCTION"
+                        0xC000001E -> " STATUS_INVALID_LOCK_SEQUENCE"
+                        --
+                        0xC0000022 -> " STATUS_NONCONTINUABLE_EXCEPTION"
+                        --
+                        0xC0000025 -> " STATUS_NONCONTINUABLE_EXCEPTION"
+                        --
+                        0xC000002B -> " STATUS_PARITY_ERROR"
+                        --
+                        0xC0000032 -> " STATUS_DISK_CORRUPT_ERROR"
+                        0xC0000039 -> " STATUS_OBJECT_PATH_INVALID"
+                        0xC000003A -> " STATUS_OBJECT_PATH_NOT_FOUND"
+                        0xC000003B -> " STATUS_OBJECT_PATH_SYNTAX_BAD"
+                        0xC000003E -> " STATUS_DATA_ERROR"
+                        --
+                        0xC0000093 -> " STATUS_FLOAT_UNDERFLOW"
+                        0xC0000094 -> " STATUS_INTEGER_DIVIDE_BY_ZERO"
+                        0xC0000095 -> " STATUS_INTEGER_OVERFLOW"
+                        0xC0000096 -> " STATUS_PRIVILEGED_INSTRUCTION"
+                        --
+                        0xC00000B0 -> " STATUS_PIPE_DISCONNECTED"
+                        --
+                        0xC00000B5 -> " STATUS_IO_TIMEOUT"
+                        --
+                        0xC00000BB -> " STATUS_NOT_SUPPORTED"
+                        --
+                        0xC000013A -> " STATUS_CONTROL_C_EXIT"
+                        --
+                        0xC0000142 -> " STATUS_DLL_INIT_FAILED"
+                        --
+                        0xC0000144 -> " STATUS_UNHANDLED_EXCEPTION"
+                        --
+                        0xC000014B -> " STATUS_PIPE_BROKEN"
+                        _ -> ""
+#else
+                      -- TODO: unix behavior (e.g. report signal)
+                      = ""
+#endif
+
   when (argsTime args) $ do
-    hPutColoredLn SIO.stdout SCA.White (TPF.printf "time: %7.3f s" (eT - sT))
+    hPutColoredLn SIO.stdout SCA.White (TPF.printf "time: %7.3f s" (timeElapsedS eT sT))
   return ec
 
 bUFFER_SIZE = 256 :: Int
-runProcess :: Double -> PState -> Args -> IO SE.ExitCode
+
+runProcess :: DT.SystemTime -> PState -> Args -> IO SE.ExitCode
 runProcess s mv args = do
   let initExecArgs
         | argsShell args = SP.shell (unwords (argsExecFile args : argsExecArgs args))
@@ -190,20 +287,43 @@ colorInput h ptr = do
         SCA.hSetSGR SIO.stderr [SCA.Reset]
       colorInput h ptr
 
-nowS :: IO Double
-nowS = fmap (\i64 -> fromIntegral i64 / 1000000.0) nowMicros
-
-nowMicros :: IO Int64
-nowMicros = do
-  (ST.TOD s picos) <- ST.getClockTime
-  return $! (fromInteger s * 1000 * 1000 + (fromInteger picos `div` 1000000))
-
-
 ------------------------------------------------
 ------------------------ SIGNAL HANDLER
 listProcessInfo :: PInfo -> IO ()
 listProcessInfo (PInfo pH s) = do
-  now <- nowS
-  putStrLn (TPF.printf "\nruntime: %7.3f s\n" (now - s))
+  n <- now
+  putStrLn (TPF.printf "\nruntime: %7.3f s\n" (timeElapsedS n s))
   listProcessInfoSys
+
+-------
+now :: IO DT.SystemTime
+now = DT.getSystemTime
+
+timeS :: IO a -> IO (a,Double)
+timeS ioa = do
+  ts <- DT.getSystemTime
+  a <- ioa
+  te <- DT.getSystemTime
+  return (a,te`timeElapsedS`ts)
+
+timeElapsedS :: DT.SystemTime -> DT.SystemTime -> Double
+timeElapsedS te ts = fromIntegral (timeElapsedNS te ts) / 1e9
+  where stToS t =
+          fromIntegral (DT.systemSeconds t) +
+            fromIntegral (DT.systemNanoseconds t) / 1e9
+
+timeElapsedNS :: DT.SystemTime -> DT.SystemTime -> Int64
+timeElapsedNS te ts = stToNanos te - stToNanos ts
+  where stToNanos t = (DT.systemSeconds t)*1000*1000*1000 + fromIntegral (DT.systemNanoseconds t)
+
+--
+-- old System.Time approach
+-- nowS :: IO Double
+-- nowS = fmap (\i64 -> fromIntegral i64 / 1000000.0) nowMicros
+--
+-- nowMicros :: IO Int64
+-- nowMicros = do
+--   (ST.TOD s picos) <- ST.getClockTime
+--   return $! (fromInteger s * 1000 * 1000 + (fromInteger picos `div` 1000000))
+
 

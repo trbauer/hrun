@@ -34,9 +34,9 @@ inferChildPid = withTh32Snap tH32CS_SNAPPROCESS Nothing $ \tsh -> do
 
 
 
-
-foreign import stdcall unsafe "windows.h GetCurrentProcessId"
-  getCurrentProcessId :: IO DWORD
+-- could use getCurrentProcessId
+-- foreign import stdcall unsafe "windows.h GetCurrentProcessId"
+--  getCurrentProcessId :: IO DWORD
 
 
 
